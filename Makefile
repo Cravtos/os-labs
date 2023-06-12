@@ -1,9 +1,9 @@
-.PHONY: server clean
+.PHONY: run build clean
 
-run: server
+run: build
 	./server
 
-server: server.c
+build: server.c
 	gcc server.c -o server
 
 clean:
