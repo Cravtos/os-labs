@@ -13,9 +13,16 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <signal.h>
 
 #define PORT "31337"
 #define MAX_PENDING 50
+
+volatile sig_atomic_t was_stopped = 0;
+
+void signal_handler(int signal) {
+    was_stopped = 1;
+}
 
 void *get_in_addr(struct sockaddr *sa) {
     if (sa->sa_family == AF_INET) {
@@ -73,6 +80,40 @@ int start_server() {
     return sockfd;
 }
 
+void register_handlers(sigset_t* sigmask) {
+    struct sigaction sa;
+    sigaction(SIGHUP, NULL, &sa);
+    sa.sa_handler = signal_handler;
+    sa.sa_flags |= SA_RESTART;
+    sigaction(SIGHUP, &sa, NULL);
+
+    sigaction(SIGTERM, NULL, &sa);
+    sa.sa_handler = signal_handler;
+    sa.sa_flags |= SA_RESTART;
+    sigaction(SIGTERM, &sa, NULL);
+
+    sigaction(SIGQUIT, NULL, &sa);
+    sa.sa_handler = signal_handler;
+    sa.sa_flags |= SA_RESTART;
+    sigaction(SIGQUIT, &sa, NULL);
+
+    sigset_t blockedMask;
+    sigemptyset(&blockedMask);
+    sigaddset(&blockedMask, SIGHUP);
+    sigaddset(&blockedMask, SIGTERM);
+    sigaddset(&blockedMask, SIGSTOP);
+    sigprocmask(SIG_BLOCK, &blockedMask, sigmask);
+}
+
+int find_client(int* clients, int active, int fd) {
+    for (int i = 0; i < active; i++) {
+        if (clients[i] == fd) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 int main() {
     int sockfd = start_server();
     int maxfd = sockfd;
@@ -84,9 +125,32 @@ int main() {
     FD_ZERO(&master);
     FD_SET(sockfd, &master);
 
+    sigset_t sigmask;
+    register_handlers(&sigmask);
+
+    // NOTE: can be dynamicly allocated to prevent overflow
+    int clients[50];
+    int active = 0;
+
     for (;;) {
         temp_fd = master;
-        if (select(maxfd+1, &temp_fd, NULL, NULL, NULL) == -1) {
+
+        maxfd = sockfd;
+        for (int i = 0; i < active; i++) {
+            if (clients[i] > maxfd) {
+                maxfd = clients[i];
+            }
+        }
+
+        printf("Active clients: %d, maxfd: %d\n", active, maxfd);
+        fflush(stdout);
+
+        if (pselect(maxfd+1, &temp_fd, NULL, NULL, NULL, &sigmask) == -1) {
+            if (errno == EINTR) {
+                puts("Stopping server...");
+                close(sockfd);
+                exit(0);
+            }
             perror("select");
             exit(1);
         }
@@ -107,7 +171,9 @@ int main() {
                 }
                 
                 FD_SET(newfd, &master);
-                maxfd = (newfd >= maxfd) ? newfd : maxfd;
+                clients[active] = newfd;
+                active += 1;
+
                 char remoteIP[INET6_ADDRSTRLEN];
                 printf("selectserver: new connection from %s on "
                             "socket %d\n",
@@ -129,6 +195,11 @@ int main() {
                 }
                 close(fd);
                 FD_CLR(fd, &master);
+
+                int idx = find_client(clients, active, fd);
+                clients[idx] = clients[active - 1];
+                active -= 1;
+
                 continue;
             }
             buf[n] = '\0';
@@ -139,6 +210,4 @@ int main() {
             }
         }
     }
-
-    close(sockfd);
 }
