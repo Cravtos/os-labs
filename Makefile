@@ -1,10 +1,12 @@
-.PHONY: run build clean
+.PHONY: all monitor server clean
 
-run: build
-	./server
+all: server monitor
 
-build: server.c
+monitor: monitor.c
+	gcc monitor.c -o monitor -lpthread
+
+server: server.c
 	gcc server.c -o server
 
 clean:
-	rm server
+	rm server monitor
