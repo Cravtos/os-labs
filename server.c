@@ -133,6 +133,11 @@ int main() {
     int active = 0;
 
     for (;;) {
+        if (was_stopped) {
+            puts("Stopping server...");
+            exit(0);
+        }
+
         temp_fd = master;
 
         maxfd = sockfd;
