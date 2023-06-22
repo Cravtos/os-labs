@@ -24,7 +24,7 @@ monitor_t monitor = {
 void* provide(void* arg) {
     srand(time(NULL));
     for (;;) {
-        int data = rand();
+        int data = rand() % 100;
 
         pthread_mutex_lock(&monitor.lock);
 
@@ -40,6 +40,8 @@ void* provide(void* arg) {
         pthread_cond_signal(&monitor.data_ready);
         pthread_mutex_unlock(&monitor.lock);
     }
+
+    return NULL;
 }
 
 void* consume(void* arg) {
@@ -59,6 +61,8 @@ void* consume(void* arg) {
         printf("consumer %lu: got data %d. sleeping for %d\n", id, data, data % 3);
         sleep(data % 3);
     }
+
+    return NULL;
 }
 
 int main() {
